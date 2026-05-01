@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <rect width="1200" height="420" fill="#111827"/>
+  <rect x="110" y="235" width="980" height="86" rx="16" fill="#334155"/>
+  <path d="M180 80 L1020 80 L920 235 L280 235Z" fill="#7c3aed" opacity=".7"/>
+  <circle cx="360" cy="170" r="42" fill="#facc15"/>
+  <circle cx="600" cy="155" r="56" fill="#fb7185"/>
+  <circle cx="840" cy="170" r="42" fill="#2dd4bf"/>
+  <text x="72" y="380" font-family="Arial" font-size="46" font-weight="700" fill="#f8fafc">Cultural & Winners Night</text>
+</svg>

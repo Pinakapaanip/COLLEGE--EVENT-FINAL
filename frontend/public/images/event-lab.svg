@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <rect width="1200" height="420" fill="#0b1120"/>
+  <rect x="120" y="110" width="300" height="220" rx="18" fill="#1e293b"/>
+  <rect x="470" y="82" width="270" height="248" rx="18" fill="#164e63"/>
+  <rect x="790" y="130" width="300" height="200" rx="18" fill="#3f3f46"/>
+  <path d="M190 210 H350 M535 165 H675 M850 230 H1040" stroke="#67e8f9" stroke-width="12" stroke-linecap="round"/>
+  <text x="70" y="390" font-family="Arial" font-size="46" font-weight="700" fill="#f8fafc">Labs, Workshops, Competitions</text>
+</svg>
