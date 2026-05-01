@@ -1,368 +1,521 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  BarChart, Bar, CartesianGrid, Cell, Line, LineChart, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis
-} from "recharts";
-import { Activity, CalendarPlus, LayoutDashboard, LogIn, Medal, Trophy, UserPlus, Users } from "lucide-react";
-import { apiRequest, API_URL } from "./api";
-import { fallbackAnalytics, fallbackEvents, fallbackOptions, fallbackParticipants } from "./fallbackData";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, Database, Medal, Sparkles, Trophy, Users } from "lucide-react";
+import { apiRequest, BASE_URL } from "./api";
+import { fallbackEvents, fallbackOptions, fallbackParticipants, fallbackResults } from "./fallbackData";
+import Analytics from "./components/Analytics";
+import Carousel from "./components/Carousel";
+import ConfirmModal from "./components/ConfirmModal";
+import EditModal from "./components/EditModal";
+import EventTable from "./components/EventTable";
+import Header from "./components/Header";
+import KPIcard from "./components/KPIcard";
+import ParticipantTable from "./components/ParticipantTable";
+import ResultTable from "./components/ResultTable";
+import Sidebar from "./components/Sidebar";
 
-const colors = ["#2dd4bf", "#60a5fa", "#f472b6", "#facc15", "#a78bfa", "#fb7185"];
-const nav = [
-  ["dashboard", "Dashboard", LayoutDashboard],
-  ["events", "Events", CalendarPlus],
-  ["participants", "Participants", Users],
-  ["results", "Results", Trophy]
-];
+const emptyEvent = {
+  title: "",
+  category: "Technical",
+  department: "CSE",
+  date: "2026-04-30",
+  venue: "",
+  organizer: "",
+  description: ""
+};
 
-const emptyEvent = { title: "", category: "Technical", department: "CSE", date: "2026-04-30", venue: "", organizer: "", description: "" };
-const emptyParticipant = { event_id: "", student_name: "", roll_no: "", department: "CSE", year: "2nd Year", participant_type: "Internal" };
-const emptyResult = { event_id: "", participant_id: "", rank: "1", prize: "Gold Medal + Certificate" };
+const emptyParticipant = {
+  event_id: "",
+  student_name: "",
+  roll_no: "",
+  department: "CSE",
+  year: "2nd Year",
+  participant_type: "Internal"
+};
 
-const safeArray = (value) => (Array.isArray(value) ? value : []);
+const emptyResult = {
+  event_id: "",
+  participant_id: "",
+  rank: "1",
+  prize: "Gold Medal + Certificate"
+};
 
-function safeOptions(value) {
-  return {
-    departments: safeArray(value?.departments).length ? value.departments : fallbackOptions.departments,
-    categories: safeArray(value?.categories).length ? value.categories : fallbackOptions.categories,
-    years: safeArray(value?.years).length ? value.years : fallbackOptions.years,
-    participantTypes: safeArray(value?.participantTypes).length ? value.participantTypes : fallbackOptions.participantTypes
-  };
+function safeArray(value, fallback = []) {
+  return Array.isArray(value) && value.length ? value : fallback;
 }
 
-function safeAnalytics(value) {
-  const fallback = fallbackAnalytics();
-  return {
-    ...fallback,
-    ...(value || {}),
-    kpis: { ...fallback.kpis, ...(value?.kpis || {}) },
-    eventsByDepartment: safeArray(value?.eventsByDepartment).length ? value.eventsByDepartment : fallback.eventsByDepartment,
-    monthlyTrend: safeArray(value?.monthlyTrend).length ? value.monthlyTrend : fallback.monthlyTrend,
-    categoryDistribution: safeArray(value?.categoryDistribution).length ? value.categoryDistribution : fallback.categoryDistribution,
-    participantTypeDistribution: safeArray(value?.participantTypeDistribution).length ? value.participantTypeDistribution : fallback.participantTypeDistribution,
-    participantsByDepartment: safeArray(value?.participantsByDepartment).length ? value.participantsByDepartment : fallback.participantsByDepartment,
-    winners: safeArray(value?.winners)
-  };
-}
-
-function getStoredUser() {
-  try {
-    return localStorage.getItem("portalUser") || "";
-  } catch {
-    return "";
-  }
-}
-
-function Notice({ message, tone = "cyan" }) {
-  if (!message) return null;
-  const palette = tone === "error" ? "border-rose-400/40 bg-rose-500/10 text-rose-100" : "border-cyan-300/30 bg-cyan-400/10 text-cyan-50";
-  return <div className={`rounded-lg border px-4 py-3 text-sm ${palette}`}>{message}</div>;
-}
-
-function Field({ label, children }) {
+function ToastStack({ toasts, onClose }) {
   return (
-    <label className="space-y-2 text-sm text-slate-300">
-      <span>{label}</span>
+    <div className="fixed right-4 top-4 z-[60] grid w-[min(360px,calc(100vw-2rem))] gap-3">
+      {toasts.map((toast) => (
+        <button
+          key={toast.id}
+          onClick={() => onClose(toast.id)}
+          className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold shadow-lg backdrop-blur-lg ${
+            toast.type === "error"
+              ? "border-red-300/30 bg-red-500/20 text-red-50"
+              : "border-emerald-300/30 bg-emerald-500/20 text-emerald-50"
+          }`}
+        >
+          {toast.message}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function LoadingSpinner() {
+  return (
+    <div className="grid min-h-[320px] place-items-center">
+      <div className="text-center">
+        <div className="mx-auto h-14 w-14 animate-spin rounded-full border-4 border-cyan-200/20 border-t-cyan-300" />
+        <p className="mt-4 text-sm font-semibold text-slate-200">Loading portal data...</p>
+      </div>
+    </div>
+  );
+}
+
+function PageTitle({ eyebrow, title, children }) {
+  return (
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p className="text-xs uppercase tracking-[0.24em] text-cyan-200">{eyebrow}</p>
+        <h2 className="mt-1 text-2xl font-bold text-white md:text-3xl">{title}</h2>
+      </div>
       {children}
-    </label>
-  );
-}
-
-function TextInput(props) {
-  return <input className="field" {...props} />;
-}
-
-function Select({ children, ...props }) {
-  return <select className="field" {...props}>{children}</select>;
-}
-
-function ChartCard({ title, children }) {
-  return (
-    <section className="glass rounded-lg p-5">
-      <h3 className="mb-4 text-base font-semibold text-white">{title}</h3>
-      <div className="h-72">{children}</div>
-    </section>
-  );
-}
-
-function Login({ onLogin }) {
-  const [name, setName] = useState("");
-  return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="glass w-full max-w-md rounded-lg p-8">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-lg bg-teal-400/20 p-3 text-teal-200"><Activity /></div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">College Event Portal</h1>
-            <p className="text-sm text-slate-300">Demo access for analytics and operations</p>
-          </div>
-        </div>
-        <form onSubmit={(event) => { event.preventDefault(); onLogin(name || "Demo Coordinator"); }} className="space-y-4">
-          <Field label="Coordinator name or email">
-            <TextInput value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter anything to continue" />
-          </Field>
-          <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-teal-300">
-            <LogIn size={18} /> Enter Dashboard
-          </button>
-        </form>
-      </div>
-    </main>
-  );
-}
-
-function Dashboard({ analytics, events, participants, error }) {
-  const chartData = safeAnalytics(analytics);
-  const eventRows = safeArray(events);
-  const participantRows = safeArray(participants);
-  const kpis = chartData.kpis || {};
-  const cards = [
-    ["Total Events", kpis.totalEvents || eventRows.length, CalendarPlus],
-    ["Total Participants", kpis.totalParticipants || participantRows.length, UserPlus],
-    ["Departments", kpis.departmentsCount || 4, LayoutDashboard],
-    ["Upcoming Events", kpis.upcomingEvents || 0, Activity]
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div className="overflow-hidden rounded-lg border border-white/10">
-        <div className="banner-track flex w-[300%]">
-          {["event-tech.svg", "event-stage.svg", "event-lab.svg"].map((image) => (
-            <img key={image} className="h-56 w-1/3 object-cover" src={`/images/${image}`} alt="Campus event banner" />
-          ))}
-        </div>
-      </div>
-      <Notice message={error} tone={error?.includes("unavailable") || error?.includes("failed") ? "error" : "cyan"} />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(([label, value, Icon]) => (
-          <div key={label} className="glass rounded-lg p-5 transition hover:-translate-y-1">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-300">{label}</p>
-              <Icon className="text-teal-200" size={20} />
-            </div>
-            <p className="mt-3 text-3xl font-bold text-white">{value}</p>
-          </div>
-        ))}
-      </div>
-      <div className="grid gap-5 xl:grid-cols-2">
-        <ChartCard title="Events by Department">
-          <ResponsiveContainer><BarChart data={chartData.eventsByDepartment}><CartesianGrid strokeDasharray="3 3" stroke="#334155" /><XAxis dataKey="label" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip /><Bar dataKey="events" fill="#2dd4bf" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Monthly Trend (Jan-Apr)">
-          <ResponsiveContainer><LineChart data={chartData.monthlyTrend}><CartesianGrid strokeDasharray="3 3" stroke="#334155" /><XAxis dataKey="month" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip /><Line type="monotone" dataKey="events" stroke="#f472b6" strokeWidth={3} /></LineChart></ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Category Distribution">
-          <ResponsiveContainer><PieChart><Pie data={chartData.categoryDistribution} dataKey="value" nameKey="label" outerRadius={96} label>{chartData.categoryDistribution.map((_, index) => <Cell key={index} fill={colors[index % colors.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Internal vs External">
-          <ResponsiveContainer><PieChart><Pie data={chartData.participantTypeDistribution} dataKey="value" nameKey="label" innerRadius={54} outerRadius={96} label>{chartData.participantTypeDistribution.map((_, index) => <Cell key={index} fill={colors[index % colors.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Participants by Department">
-          <ResponsiveContainer><BarChart data={chartData.participantsByDepartment}><CartesianGrid strokeDasharray="3 3" stroke="#334155" /><XAxis dataKey="label" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip /><Bar dataKey="participants" fill="#60a5fa" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer>
-        </ChartCard>
-        <section className="glass rounded-lg p-5">
-          <h3 className="mb-4 flex items-center gap-2 text-base font-semibold text-white"><Medal size={18} /> Winners Leaderboard</h3>
-          <div className="max-h-72 overflow-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-slate-400"><tr><th className="py-2">Rank</th><th>Student</th><th>Event</th><th>Prize</th></tr></thead>
-              <tbody>
-                {chartData.winners.map((winner) => (
-                  <tr key={winner.id} className="border-t border-white/10">
-                    <td className="py-3 text-teal-200">#{winner.rank}</td><td>{winner.student_name || "Unknown"}</td><td className="text-slate-300">{winner.event_title || "Unknown event"}</td><td className="text-slate-300">{winner.prize || "Prize pending"}</td>
-                  </tr>
-                ))}
-                {!chartData.winners.length && (
-                  <tr className="border-t border-white/10"><td className="py-3 text-slate-300" colSpan="4">No winners available yet.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
     </div>
   );
 }
 
-function Events({ events, options, onCreated }) {
-  const eventRows = safeArray(events);
-  const optionRows = safeOptions(options);
+function EventForm({ options, onSubmit, loading }) {
   const [form, setForm] = useState(emptyEvent);
-  const [notice, setNotice] = useState("");
 
-  async function submit(event) {
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function submit(event) {
     event.preventDefault();
-    const response = await apiRequest("/events", { method: "POST", body: JSON.stringify(form) });
-    setNotice(response.error || "Event saved successfully");
-    if (response.success !== false && response.data) {
-      onCreated(response.data);
-      setForm(emptyEvent);
-    }
+    onSubmit(form, () => setForm(emptyEvent));
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-      <form onSubmit={submit} className="glass space-y-4 rounded-lg p-5">
-        <h2 className="text-xl font-semibold text-white">Add Event</h2><Notice message={notice} tone={notice.includes("failed") || notice.includes("unavailable") ? "error" : "cyan"} />
-        <Field label="Title"><TextInput required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Category"><Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{optionRows.categories.map((x) => <option key={x}>{x}</option>)}</Select></Field>
-          <Field label="Department"><Select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>{optionRows.departments.map((x) => <option key={x}>{x}</option>)}</Select></Field>
-        </div>
-        <Field label="Date"><TextInput required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-        <Field label="Venue"><TextInput required value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} /></Field>
-        <Field label="Organizer"><TextInput required value={form.organizer} onChange={(e) => setForm({ ...form, organizer: e.target.value })} /></Field>
-        <Field label="Description"><textarea className="field min-h-24" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
-        <button className="rounded-lg bg-teal-400 px-4 py-3 font-semibold text-slate-950">Save Event</button>
-      </form>
-      <div className="glass rounded-lg p-5">
-        <h2 className="mb-4 text-xl font-semibold text-white">View Events</h2>
-        <div className="grid gap-3">
-          {eventRows.map((event) => <div key={event.id} className="rounded-lg border border-white/10 bg-white/5 p-4"><div className="flex flex-wrap justify-between gap-2"><strong>{event.title || "Untitled event"}</strong><span className="text-teal-200">{event.department || "Department"} - {event.date || "Date pending"}</span></div><p className="mt-2 text-sm text-slate-300">{event.category || "Event"} at {event.venue || "Venue pending"} by {event.organizer || "Organizer pending"}</p><p className="mt-2 text-sm text-slate-400">{event.description || "No description provided."}</p></div>)}
-          {!eventRows.length && <Notice message="No events available yet." />}
-        </div>
+    <form onSubmit={submit} className="glass-panel rounded-xl p-5">
+      <PageTitle eyebrow="Create" title="Add Event" />
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Title</span>
+          <input className="field" value={form.title} onChange={(event) => update("title", event.target.value)} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Category</span>
+          <select className="field" value={form.category} onChange={(event) => update("category", event.target.value)} required>
+            {(options.categories || []).map((category) => <option key={category}>{category}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Department</span>
+          <select className="field" value={form.department} onChange={(event) => update("department", event.target.value)} required>
+            {(options.departments || []).map((department) => <option key={department}>{department}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Date</span>
+          <input className="field" type="date" value={form.date} onChange={(event) => update("date", event.target.value)} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Venue</span>
+          <input className="field" value={form.venue} onChange={(event) => update("venue", event.target.value)} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Organizer</span>
+          <input className="field" value={form.organizer} onChange={(event) => update("organizer", event.target.value)} required />
+        </label>
+        <label className="space-y-2 md:col-span-2">
+          <span className="text-sm text-slate-300">Description</span>
+          <textarea className="field min-h-28" value={form.description} onChange={(event) => update("description", event.target.value)} />
+        </label>
       </div>
-    </div>
+      <button disabled={loading} className="mt-5 rounded-xl bg-cyan-300 px-5 py-3 font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60">
+        {loading ? "Saving..." : "Create Event"}
+      </button>
+    </form>
   );
 }
 
-function Participants({ events, participants, options, onCreated }) {
-  const eventRows = safeArray(events);
-  const participantRows = safeArray(participants);
-  const optionRows = safeOptions(options);
-  const firstEvent = eventRows[0]?.id || fallbackEvents[0]?.id || "";
+function ParticipantForm({ events, options, onSubmit, loading }) {
+  const firstEvent = events[0]?.id || "";
   const [form, setForm] = useState({ ...emptyParticipant, event_id: firstEvent });
-  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    if (!form.event_id && firstEvent) setForm((prev) => ({ ...prev, event_id: firstEvent }));
+    if (!form.event_id && firstEvent) setForm((current) => ({ ...current, event_id: firstEvent }));
   }, [firstEvent, form.event_id]);
 
-  async function submit(event) {
-    event.preventDefault();
-    const response = await apiRequest("/participants", { method: "POST", body: JSON.stringify(form) });
-    setNotice(response.error || "Participant saved successfully");
-    if (response.success !== false && response.data) onCreated(response.data);
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-      <form onSubmit={submit} className="glass space-y-4 rounded-lg p-5">
-        <h2 className="text-xl font-semibold text-white">Add Participant</h2><Notice message={notice} tone={notice.includes("Duplicate") || notice.includes("failed") || notice.includes("unavailable") ? "error" : "cyan"} />
-        <Field label="Event"><Select value={form.event_id} onChange={(e) => setForm({ ...form, event_id: e.target.value })}>{eventRows.map((event) => <option key={event.id} value={event.id}>{event.title || "Untitled event"}</option>)}</Select></Field>
-        <Field label="Student Name"><TextInput required value={form.student_name} onChange={(e) => setForm({ ...form, student_name: e.target.value })} /></Field>
-        <Field label="Roll No"><TextInput required value={form.roll_no} onChange={(e) => setForm({ ...form, roll_no: e.target.value })} /></Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Department"><Select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>{optionRows.departments.map((x) => <option key={x}>{x}</option>)}</Select></Field>
-          <Field label="Year"><Select value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })}>{optionRows.years.map((x) => <option key={x}>{x}</option>)}</Select></Field>
-        </div>
-        <Field label="Participant Type"><Select value={form.participant_type} onChange={(e) => setForm({ ...form, participant_type: e.target.value })}>{optionRows.participantTypes.map((x) => <option key={x}>{x}</option>)}</Select></Field>
-        <button className="rounded-lg bg-teal-400 px-4 py-3 font-semibold text-slate-950">Save Participant</button>
-      </form>
-      <div className="glass rounded-lg p-5"><h2 className="mb-4 text-xl font-semibold text-white">Recent Participants</h2>{participantRows.slice(0, 18).map((p) => <div key={p.id} className="mb-2 rounded-lg bg-white/5 p-3 text-sm">{p.student_name || "Unnamed participant"} <span className="text-slate-400">({p.roll_no || "No roll"}) - {p.department || "Department"} - {p.participant_type || "Type"}</span></div>)}{!participantRows.length && <Notice message="No participants available yet." />}</div>
-    </div>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(form, () => setForm({ ...emptyParticipant, event_id: firstEvent }));
+      }}
+      className="glass-panel rounded-xl p-5"
+    >
+      <h3 className="mb-4 text-xl font-bold text-white">Add Participant</h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-2 md:col-span-2">
+          <span className="text-sm text-slate-300">Event</span>
+          <select className="field" value={form.event_id} onChange={(event) => update("event_id", event.target.value)} required>
+            {events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Student Name</span>
+          <input className="field" value={form.student_name} onChange={(event) => update("student_name", event.target.value)} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Roll No</span>
+          <input className="field" value={form.roll_no} onChange={(event) => update("roll_no", event.target.value)} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Department</span>
+          <select className="field" value={form.department} onChange={(event) => update("department", event.target.value)} required>
+            {(options.departments || []).map((department) => <option key={department}>{department}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Year</span>
+          <select className="field" value={form.year} onChange={(event) => update("year", event.target.value)} required>
+            {(options.years || []).map((year) => <option key={year}>{year}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2 md:col-span-2">
+          <span className="text-sm text-slate-300">Participant Type</span>
+          <select className="field" value={form.participant_type} onChange={(event) => update("participant_type", event.target.value)} required>
+            {(options.participantTypes || []).map((type) => <option key={type}>{type}</option>)}
+          </select>
+        </label>
+      </div>
+      <button disabled={loading || !events.length} className="mt-5 rounded-xl bg-purple-300 px-5 py-3 font-bold text-slate-950 shadow-lg shadow-purple-500/20 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60">
+        {loading ? "Saving..." : "Create Participant"}
+      </button>
+    </form>
   );
 }
 
-function Results({ events, participants, onCreated }) {
-  const eventRows = safeArray(events);
-  const participantRows = safeArray(participants);
-  const [form, setForm] = useState({ ...emptyResult, event_id: eventRows[0]?.id || 1, participant_id: participantRows[0]?.id || 1 });
-  const [notice, setNotice] = useState("");
-  const eventParticipants = useMemo(() => participantRows.filter((p) => Number(p.event_id) === Number(form.event_id)), [participantRows, form.event_id]);
-  const participantOptions = eventParticipants.length ? eventParticipants : participantRows.slice(0, 25);
+function ResultForm({ events, participants, onSubmit, loading }) {
+  const [form, setForm] = useState({ ...emptyResult, event_id: events[0]?.id || "", participant_id: participants[0]?.id || "" });
+  const filteredParticipants = participants.filter((participant) => Number(participant.event_id) === Number(form.event_id));
+  const participantOptions = filteredParticipants.length ? filteredParticipants : participants;
 
   useEffect(() => {
-    if (participantOptions[0] && !participantOptions.some((p) => Number(p.id) === Number(form.participant_id))) {
-      setForm((prev) => ({ ...prev, participant_id: participantOptions[0].id }));
+    if (participantOptions[0] && !participantOptions.some((participant) => Number(participant.id) === Number(form.participant_id))) {
+      setForm((current) => ({ ...current, participant_id: participantOptions[0].id }));
     }
   }, [participantOptions, form.participant_id]);
 
-  async function submit(event) {
-    event.preventDefault();
-    const response = await apiRequest("/results", { method: "POST", body: JSON.stringify(form) });
-    setNotice(response.error || "Result saved successfully");
-    if (response.success !== false) onCreated(response.data);
+  function update(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
   }
 
   return (
-    <form onSubmit={submit} className="glass mx-auto max-w-2xl space-y-4 rounded-lg p-5">
-      <h2 className="text-xl font-semibold text-white">Add Result</h2><Notice message={notice} tone={notice.includes("failed") || notice.includes("unavailable") ? "error" : "cyan"} />
-      <Field label="Event"><Select value={form.event_id} onChange={(e) => setForm({ ...form, event_id: e.target.value })}>{eventRows.map((event) => <option key={event.id} value={event.id}>{event.title || "Untitled event"}</option>)}</Select></Field>
-      <Field label="Participant"><Select value={form.participant_id} onChange={(e) => setForm({ ...form, participant_id: e.target.value })}>{participantOptions.map((p) => <option key={p.id} value={p.id}>{p.student_name || "Unnamed participant"} - {p.roll_no || "No roll"}</option>)}</Select></Field>
-      <Field label="Rank"><Select value={form.rank} onChange={(e) => setForm({ ...form, rank: e.target.value })}><option value="1">1</option><option value="2">2</option><option value="3">3</option></Select></Field>
-      <Field label="Prize"><TextInput required value={form.prize} onChange={(e) => setForm({ ...form, prize: e.target.value })} /></Field>
-      {!eventRows.length || !participantRows.length ? <Notice message="Events and participants are required before saving results." tone="error" /> : null}
-      <button disabled={!eventRows.length || !participantRows.length} className="rounded-lg bg-teal-400 px-4 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60">Save Result</button>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(form, () => setForm({ ...emptyResult, event_id: events[0]?.id || "", participant_id: participants[0]?.id || "" }));
+      }}
+      className="glass-panel rounded-xl p-5"
+    >
+      <h3 className="mb-4 text-xl font-bold text-white">Add Result</h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Event</span>
+          <select className="field" value={form.event_id} onChange={(event) => update("event_id", event.target.value)} required>
+            {events.map((event) => <option key={event.id} value={event.id}>{event.title}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Participant</span>
+          <select className="field" value={form.participant_id} onChange={(event) => update("participant_id", event.target.value)} required>
+            {participantOptions.map((participant) => <option key={participant.id} value={participant.id}>{participant.student_name} - {participant.roll_no}</option>)}
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Rank</span>
+          <select className="field" value={form.rank} onChange={(event) => update("rank", event.target.value)} required>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+          </select>
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm text-slate-300">Prize</span>
+          <input className="field" value={form.prize} onChange={(event) => update("prize", event.target.value)} required />
+        </label>
+      </div>
+      <button disabled={loading || !events.length || !participants.length} className="mt-5 rounded-xl bg-amber-300 px-5 py-3 font-bold text-slate-950 shadow-lg shadow-amber-500/20 transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60">
+        {loading ? "Saving..." : "Create Result"}
+      </button>
     </form>
   );
 }
 
 export default function App() {
-  const [user, setUser] = useState(getStoredUser);
-  const [page, setPage] = useState("dashboard");
+  const [activePage, setActivePage] = useState("dashboard");
   const [events, setEvents] = useState(fallbackEvents);
   const [participants, setParticipants] = useState(fallbackParticipants);
-  const [analytics, setAnalytics] = useState(fallbackAnalytics());
+  const [results, setResults] = useState(fallbackResults);
   const [options, setOptions] = useState(fallbackOptions);
-  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDark, setIsDark] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [toasts, setToasts] = useState([]);
+  const [editState, setEditState] = useState({ open: false, resource: "", item: null });
+  const [deleteState, setDeleteState] = useState({ open: false, resource: "", item: null });
 
-  function login(value) {
-    try {
-      localStorage.setItem("portalUser", value);
-    } catch {
-      setError("Browser storage is unavailable, continuing with this session only.");
-    }
-    setUser(value);
+  function toast(message, type = "success") {
+    const id = Date.now() + Math.random();
+    setToasts((current) => [...current, { id, message, type }]);
+    window.setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 3200);
   }
 
-  async function refresh() {
+  async function loadData() {
     setIsLoading(true);
-    try {
-      const [eventRes, participantRes, analyticsRes, optionRes] = await Promise.all([
-        apiRequest("/events"), apiRequest("/participants"), apiRequest("/analytics"), apiRequest("/options")
-      ]);
-      setEvents(safeArray(eventRes.data).length ? eventRes.data : fallbackEvents);
-      setParticipants(safeArray(participantRes.data).length ? participantRes.data : fallbackParticipants);
-      setAnalytics(safeAnalytics(analyticsRes.data));
-      setOptions(safeOptions(optionRes.data));
-      setError([eventRes.error, participantRes.error, analyticsRes.error, optionRes.error].filter(Boolean)[0] || "");
-    } catch (err) {
-      setEvents(fallbackEvents);
-      setParticipants(fallbackParticipants);
-      setAnalytics(fallbackAnalytics());
-      setOptions(fallbackOptions);
-      setError(err?.message || "Unable to load data. Showing demo data.");
-    } finally {
-      setIsLoading(false);
-    }
+    const [eventRes, participantRes, resultRes, optionRes] = await Promise.all([
+      apiRequest("/events"),
+      apiRequest("/participants"),
+      apiRequest("/results"),
+      apiRequest("/options")
+    ]);
+
+    setEvents(safeArray(eventRes.data, fallbackEvents));
+    setParticipants(safeArray(participantRes.data, fallbackParticipants));
+    setResults(safeArray(resultRes.data, fallbackResults));
+    setOptions({ ...fallbackOptions, ...(optionRes.data || {}) });
+
+    const firstError = [eventRes, participantRes, resultRes, optionRes].find((response) => response.error)?.error || "";
+    setError(firstError);
+    if (firstError) toast(firstError, "error");
+    setIsLoading(false);
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  if (!user) return <Login onLogin={login} />;
+  async function createResource(resource, payload, reset) {
+    setIsSaving(true);
+    const response = await apiRequest(`/${resource}`, { method: "POST", body: JSON.stringify(payload) });
+    setIsSaving(false);
 
-  const analyticsData = safeAnalytics(analytics);
-  const eventRows = safeArray(events);
-  const participantRows = safeArray(participants);
-  const optionRows = safeOptions(options);
+    if (!response.success) {
+      toast(response.error || "Save failed", "error");
+      return;
+    }
+
+    if (resource === "events") setEvents((current) => [response.data, ...current]);
+    if (resource === "participants") setParticipants((current) => [response.data, ...current]);
+    if (resource === "results") setResults((current) => [response.data, ...current]);
+    reset?.();
+    toast("Saved successfully");
+  }
+
+  async function updateResource(resource, payload) {
+    setIsSaving(true);
+    const response = await apiRequest(`/${resource}/${payload.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    setIsSaving(false);
+
+    if (!response.success) {
+      toast(response.error || "Update failed", "error");
+      return;
+    }
+
+    const updater = (row) => (Number(row.id) === Number(payload.id) ? response.data : row);
+    if (resource === "events") setEvents((current) => current.map(updater));
+    if (resource === "participants") setParticipants((current) => current.map(updater));
+    if (resource === "results") setResults((current) => current.map(updater));
+    setEditState({ open: false, resource: "", item: null });
+    toast("Updated successfully");
+  }
+
+  async function deleteResource() {
+    const { resource, item } = deleteState;
+    if (!resource || !item) return;
+    setIsSaving(true);
+    const response = await apiRequest(`/${resource}/${item.id}`, { method: "DELETE" });
+    setIsSaving(false);
+
+    if (!response.success) {
+      toast(response.error || "Delete failed", "error");
+      return;
+    }
+
+    const keep = (row) => Number(row.id) !== Number(item.id);
+    if (resource === "events") {
+      setEvents((current) => current.filter(keep));
+      setParticipants((current) => current.filter((participant) => Number(participant.event_id) !== Number(item.id)));
+      setResults((current) => current.filter((result) => Number(result.event_id) !== Number(item.id)));
+    }
+    if (resource === "participants") {
+      setParticipants((current) => current.filter(keep));
+      setResults((current) => current.filter((result) => Number(result.participant_id) !== Number(item.id)));
+    }
+    if (resource === "results") setResults((current) => current.filter(keep));
+    setDeleteState({ open: false, resource: "", item: null });
+    toast("Deleted successfully");
+  }
+
+  const searchedEvents = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return events;
+    return events.filter((event) =>
+      [event.title, event.category, event.department, event.venue, event.organizer]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term))
+    );
+  }, [events, search]);
+
+  const stats = {
+    totalEvents: events.length,
+    totalParticipants: participants.length,
+    totalResults: results.length,
+    databaseMode: error ? "Fallback Ready" : "Live API"
+  };
+
+  function edit(resource, item) {
+    setEditState({ open: true, resource, item });
+  }
+
+  function askDelete(resource, item) {
+    setDeleteState({ open: true, resource, item });
+  }
+
+  function renderPage() {
+    if (isLoading) return <LoadingSpinner />;
+
+    if (activePage === "dashboard") {
+      return (
+        <div className="space-y-6">
+          <Carousel />
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <KPIcard label="Total Events" value={stats.totalEvents} icon={CalendarDays} tone="cyan" />
+            <KPIcard label="Participants" value={stats.totalParticipants} icon={Users} tone="purple" />
+            <KPIcard label="Results Recorded" value={stats.totalResults} icon={Trophy} tone="amber" />
+            <KPIcard label="API Status" value={stats.databaseMode} icon={Database} tone="emerald" />
+          </div>
+          <section className="glass-panel rounded-xl p-5">
+            <PageTitle eyebrow="Operations" title="Recent Events">
+              <button onClick={() => setActivePage("add-event")} className="rounded-xl bg-cyan-300 px-4 py-2 text-sm font-bold text-slate-950 transition-all hover:scale-105">
+                Add Event
+              </button>
+            </PageTitle>
+            <EventTable events={events.slice(0, 8)} onEdit={(item) => edit("events", item)} onDelete={(item) => askDelete("events", item)} />
+          </section>
+        </div>
+      );
+    }
+
+    if (activePage === "events") {
+      return (
+        <section className="glass-panel rounded-xl p-5">
+          <PageTitle eyebrow="Manage" title="View Events" />
+          <EventTable events={events} onEdit={(item) => edit("events", item)} onDelete={(item) => askDelete("events", item)} />
+        </section>
+      );
+    }
+
+    if (activePage === "add-event") {
+      return <EventForm options={options} loading={isSaving} onSubmit={(payload, reset) => createResource("events", payload, reset)} />;
+    }
+
+    if (activePage === "participants") {
+      return (
+        <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+          <ParticipantForm events={events} options={options} loading={isSaving} onSubmit={(payload, reset) => createResource("participants", payload, reset)} />
+          <section className="glass-panel rounded-xl p-5">
+            <PageTitle eyebrow="Manage" title="Participants" />
+            <ParticipantTable participants={participants} onEdit={(item) => edit("participants", item)} onDelete={(item) => askDelete("participants", item)} />
+          </section>
+        </div>
+      );
+    }
+
+    if (activePage === "results") {
+      return (
+        <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+          <ResultForm events={events} participants={participants} loading={isSaving} onSubmit={(payload, reset) => createResource("results", payload, reset)} />
+          <section className="glass-panel rounded-xl p-5">
+            <PageTitle eyebrow="Manage" title="Results" />
+            <ResultTable results={results} onEdit={(item) => edit("results", item)} onDelete={(item) => askDelete("results", item)} />
+          </section>
+        </div>
+      );
+    }
+
+    if (activePage === "analytics") {
+      return <Analytics events={events} participants={participants} results={results} options={options} />;
+    }
+
+    if (activePage === "search") {
+      return (
+        <section className="glass-panel rounded-xl p-5">
+          <PageTitle eyebrow="Discover" title="Search Events">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm text-slate-200">
+              <Sparkles size={16} className="text-cyan-200" />
+              {searchedEvents.length} match{searchedEvents.length === 1 ? "" : "es"}
+            </div>
+          </PageTitle>
+          <input
+            className="field mb-5"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by title, department, category, venue, or organizer"
+          />
+          <EventTable events={searchedEvents} onEdit={(item) => edit("events", item)} onDelete={(item) => askDelete("events", item)} />
+        </section>
+      );
+    }
+
+    return null;
+  }
 
   return (
-    <div className="min-h-screen lg:flex">
-      <aside className="glass border-r border-white/10 p-5 lg:sticky lg:top-0 lg:h-screen lg:w-72">
-        <div className="mb-8 flex items-center gap-3"><div className="rounded-lg bg-teal-400/20 p-2 text-teal-200"><Activity /></div><div><h1 className="font-bold text-white">Event Analytics</h1><p className="text-xs text-slate-400">API: {API_URL}</p></div></div>
-        <nav className="grid gap-2">{nav.map(([id, label, Icon]) => <button key={id} onClick={() => setPage(id)} className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left transition ${page === id ? "bg-teal-400 text-slate-950" : "text-slate-200 hover:bg-white/10"}`}><Icon size={18} /> {label}</button>)}</nav>
-      </aside>
-      <main className="flex-1 p-4 md:p-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div><p className="text-sm text-teal-200">Welcome, {user}</p><h2 className="text-2xl font-bold text-white md:text-3xl">College Event Management & Analytics Portal</h2></div>
-          <button onClick={refresh} disabled={isLoading} className="rounded-lg border border-white/15 px-4 py-2 text-sm text-slate-100 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60">{isLoading ? "Refreshing..." : "Refresh Data"}</button>
-        </div>
-        {isLoading && <div className="mb-6"><Notice message="Loading latest data..." /></div>}
-        {page === "dashboard" && <Dashboard analytics={analyticsData} events={eventRows} participants={participantRows} error={error} />}
-        {page === "events" && <Events events={eventRows} options={optionRows} onCreated={(item) => { if (item) setEvents([item, ...eventRows]); refresh(); }} />}
-        {page === "participants" && <Participants events={eventRows} participants={participantRows} options={optionRows} onCreated={(item) => { if (item) setParticipants([item, ...participantRows]); refresh(); }} />}
-        {page === "results" && <Results events={eventRows} participants={participantRows} onCreated={() => refresh()} />}
-      </main>
+    <div className={`min-h-screen bg-gradient-to-r from-blue-900 via-slate-950 to-purple-900 text-slate-100 ${isDark ? "dark" : ""}`}>
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.22),transparent_30%)] lg:flex">
+        <Sidebar activePage={activePage} onNavigate={setActivePage} />
+        <main className="min-w-0 flex-1 p-4 md:p-6">
+          <Header isDark={isDark} onToggleTheme={() => setIsDark((value) => !value)} onRefresh={loadData} isLoading={isLoading} />
+          <div className="mt-5">
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-slate-300">
+              API Base URL: <span className="font-semibold text-cyan-200">{BASE_URL}</span>
+            </div>
+            {error && <div className="mb-4 rounded-xl border border-amber-300/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-50">{error}</div>}
+            {renderPage()}
+          </div>
+        </main>
+      </div>
+
+      <EditModal
+        open={editState.open}
+        resource={editState.resource}
+        item={editState.item}
+        options={options}
+        events={events}
+        participants={participants}
+        loading={isSaving}
+        onClose={() => setEditState({ open: false, resource: "", item: null })}
+        onSubmit={(payload) => updateResource(editState.resource, payload)}
+      />
+      <ConfirmModal
+        open={deleteState.open}
+        loading={isSaving}
+        onCancel={() => setDeleteState({ open: false, resource: "", item: null })}
+        onConfirm={deleteResource}
+      />
+      <ToastStack toasts={toasts} onClose={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
     </div>
   );
 }

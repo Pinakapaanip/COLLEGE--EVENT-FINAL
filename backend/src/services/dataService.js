@@ -145,6 +145,41 @@ async function addEvent(payload) {
   });
 }
 
+async function updateEvent(id, payload) {
+  const required = ["title", "category", "department", "date", "venue", "organizer"];
+  required.forEach((field) => {
+    if (!payload[field]) throw new Error(`${field} is required`);
+  });
+  return withFallback(async () => {
+    const result = await query(
+      "UPDATE events SET title=$1, category=$2, department=$3, date=$4, venue=$5, organizer=$6, description=$7 WHERE id=$8 RETURNING *",
+      [payload.title, payload.category, payload.department, payload.date, payload.venue, payload.organizer, payload.description || "", id]
+    );
+    if (!result.rows[0]) throw new Error("Event not found");
+    return normalizeEvent(result.rows[0]);
+  }, () => {
+    const index = memory.events.findIndex((event) => Number(event.id) === Number(id));
+    if (index < 0) throw new Error("Event not found");
+    memory.events[index] = { ...memory.events[index], ...payload, id: Number(id), description: payload.description || "" };
+    return memory.events[index];
+  });
+}
+
+async function deleteEvent(id) {
+  return withFallback(async () => {
+    const result = await query("DELETE FROM events WHERE id=$1 RETURNING id", [id]);
+    if (!result.rows[0]) throw new Error("Event not found");
+    return { id: Number(id) };
+  }, () => {
+    const before = memory.events.length;
+    memory.events = memory.events.filter((event) => Number(event.id) !== Number(id));
+    memory.participants = memory.participants.filter((participant) => Number(participant.event_id) !== Number(id));
+    memory.results = memory.results.filter((result) => Number(result.event_id) !== Number(id));
+    if (memory.events.length === before) throw new Error("Event not found");
+    return { id: Number(id) };
+  });
+}
+
 async function addParticipant(payload) {
   const required = ["event_id", "student_name", "roll_no", "department", "year", "participant_type"];
   required.forEach((field) => {
@@ -166,6 +201,44 @@ async function addParticipant(payload) {
   });
 }
 
+async function updateParticipant(id, payload) {
+  const required = ["event_id", "student_name", "roll_no", "department", "year", "participant_type"];
+  required.forEach((field) => {
+    if (!payload[field]) throw new Error(`${field} is required`);
+  });
+  return withFallback(async () => {
+    const result = await query(
+      "UPDATE participants SET event_id=$1, student_name=$2, roll_no=$3, department=$4, year=$5, participant_type=$6 WHERE id=$7 RETURNING *",
+      [payload.event_id, payload.student_name, payload.roll_no, payload.department, payload.year, payload.participant_type, id]
+    );
+    if (!result.rows[0]) throw new Error("Participant not found");
+    return result.rows[0];
+  }, () => {
+    const index = memory.participants.findIndex((participant) => Number(participant.id) === Number(id));
+    if (index < 0) throw new Error("Participant not found");
+    const duplicate = memory.participants.some(
+      (item) => Number(item.id) !== Number(id) && Number(item.event_id) === Number(payload.event_id) && item.roll_no === payload.roll_no
+    );
+    if (duplicate) throw new Error("Duplicate roll number for this event");
+    memory.participants[index] = { ...memory.participants[index], ...payload, id: Number(id), event_id: Number(payload.event_id) };
+    return memory.participants[index];
+  });
+}
+
+async function deleteParticipant(id) {
+  return withFallback(async () => {
+    const result = await query("DELETE FROM participants WHERE id=$1 RETURNING id", [id]);
+    if (!result.rows[0]) throw new Error("Participant not found");
+    return { id: Number(id) };
+  }, () => {
+    const before = memory.participants.length;
+    memory.participants = memory.participants.filter((participant) => Number(participant.id) !== Number(id));
+    memory.results = memory.results.filter((result) => Number(result.participant_id) !== Number(id));
+    if (memory.participants.length === before) throw new Error("Participant not found");
+    return { id: Number(id) };
+  });
+}
+
 async function addResult(payload) {
   const required = ["event_id", "participant_id", "rank", "prize"];
   required.forEach((field) => {
@@ -181,6 +254,50 @@ async function addResult(payload) {
     const item = { id: Math.max(...memory.results.map((result) => result.id)) + 1, ...payload, event_id: Number(payload.event_id), participant_id: Number(payload.participant_id), rank: Number(payload.rank) };
     memory.results.unshift(item);
     return item;
+  });
+}
+
+async function updateResult(id, payload) {
+  const required = ["event_id", "participant_id", "rank", "prize"];
+  required.forEach((field) => {
+    if (!payload[field]) throw new Error(`${field} is required`);
+  });
+  return withFallback(async () => {
+    const result = await query(
+      "UPDATE results SET event_id=$1, participant_id=$2, rank=$3, prize=$4 WHERE id=$5 RETURNING *",
+      [payload.event_id, payload.participant_id, payload.rank, payload.prize, id]
+    );
+    if (!result.rows[0]) throw new Error("Result not found");
+    return result.rows[0];
+  }, () => {
+    const index = memory.results.findIndex((result) => Number(result.id) === Number(id));
+    if (index < 0) throw new Error("Result not found");
+    const duplicate = memory.results.some(
+      (item) => Number(item.id) !== Number(id) && Number(item.event_id) === Number(payload.event_id) && Number(item.rank) === Number(payload.rank)
+    );
+    if (duplicate) throw new Error("Duplicate result rank for this event");
+    memory.results[index] = {
+      ...memory.results[index],
+      ...payload,
+      id: Number(id),
+      event_id: Number(payload.event_id),
+      participant_id: Number(payload.participant_id),
+      rank: Number(payload.rank)
+    };
+    return memory.results[index];
+  });
+}
+
+async function deleteResult(id) {
+  return withFallback(async () => {
+    const result = await query("DELETE FROM results WHERE id=$1 RETURNING id", [id]);
+    if (!result.rows[0]) throw new Error("Result not found");
+    return { id: Number(id) };
+  }, () => {
+    const before = memory.results.length;
+    memory.results = memory.results.filter((result) => Number(result.id) !== Number(id));
+    if (memory.results.length === before) throw new Error("Result not found");
+    return { id: Number(id) };
   });
 }
 
@@ -203,4 +320,21 @@ function health() {
   return { ok: true, dbHealthy, mode: dbHealthy ? "database" : "fallback", error: lastError };
 }
 
-module.exports = { initDb, listEvents, listParticipants, listResults, addEvent, addParticipant, addResult, analytics, options, health };
+module.exports = {
+  initDb,
+  listEvents,
+  listParticipants,
+  listResults,
+  addEvent,
+  updateEvent,
+  deleteEvent,
+  addParticipant,
+  updateParticipant,
+  deleteParticipant,
+  addResult,
+  updateResult,
+  deleteResult,
+  analytics,
+  options,
+  health
+};

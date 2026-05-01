@@ -29,12 +29,18 @@ app.get("/api/options", (req, res) => send(res, { success: true, data: dataServi
 
 app.get("/api/events", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.listEvents()) })));
 app.post("/api/events", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.addEvent(req.body)) }, 201)));
+app.put("/api/events/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.updateEvent(req.params.id, req.body)) })));
+app.delete("/api/events/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.deleteEvent(req.params.id)) })));
 
 app.get("/api/participants", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.listParticipants()) })));
 app.post("/api/participants", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.addParticipant(req.body)) }, 201)));
+app.put("/api/participants/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.updateParticipant(req.params.id, req.body)) })));
+app.delete("/api/participants/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.deleteParticipant(req.params.id)) })));
 
 app.get("/api/results", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.listResults()) })));
 app.post("/api/results", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.addResult(req.body)) }, 201)));
+app.put("/api/results/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.updateResult(req.params.id, req.body)) })));
+app.delete("/api/results/:id", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.deleteResult(req.params.id)) })));
 
 app.get("/api/analytics", asyncRoute(async (req, res) => send(res, { success: true, ...(await dataService.analytics()) })));
 

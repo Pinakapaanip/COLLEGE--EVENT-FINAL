@@ -1,108 +1,77 @@
-import { fallbackAnalytics, fallbackEvents, fallbackOptions, fallbackParticipants, fallbackResults } from "./fallbackData";
+import { fallbackEvents, fallbackOptions, fallbackParticipants, fallbackResults } from "./fallbackData";
 
-const DEFAULT_API_ORIGIN = "https://college-event-final.onrender.com";
+export const BASE_URL = String(import.meta.env.VITE_API_URL || "http://127.0.0.1:10000").replace(/\/+$/, "");
 
-function stripTrailingSlash(value) {
-  return String(value || "").replace(/\/+$/, "");
-}
-
-function normalizeApiBaseUrl(value) {
-  const raw = stripTrailingSlash(value || DEFAULT_API_ORIGIN);
-  const apiIndex = raw.indexOf("/api");
-  if (apiIndex >= 0) return raw.slice(0, apiIndex + 4);
-  return raw.endsWith("/api") ? raw : `${raw}/api`;
-}
-
-export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
-export const API_URL = API_BASE_URL;
-
-const fallbackByEndpoint = {
-  "/events": fallbackEvents,
-  "/participants": fallbackParticipants,
-  "/results": fallbackResults,
-  "/analytics": fallbackAnalytics,
-  "/options": fallbackOptions
+const fallbackByResource = {
+  events: fallbackEvents,
+  participants: fallbackParticipants,
+  results: fallbackResults,
+  options: fallbackOptions
 };
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function normalizeEndpoint(path) {
-  if (!path) return "/";
-  const withSlash = path.startsWith("/") ? path : `/${path}`;
-  if (withSlash === "/api") return "";
-  return withSlash.startsWith("/api/") ? withSlash.replace(/^\/api/, "") : withSlash;
+function parseResource(path) {
+  return String(path || "")
+    .replace(/^\/+/, "")
+    .replace(/^api\//, "")
+    .split("/")[0];
 }
 
-async function parseResponse(response) {
+async function parseJson(response) {
   const text = await response.text();
   if (!text) return {};
-
   try {
     return JSON.parse(text);
   } catch {
-    return {
-      success: false,
-      error: `Server returned ${response.status} with invalid JSON`
-    };
+    return { success: false, error: `Server returned invalid JSON (${response.status})` };
   }
 }
 
-function responseError(payload, response) {
-  if (payload?.error) return payload.error;
-  if (payload?.message) return payload.message;
-  return `Request failed with status ${response.status}`;
-}
+function fallbackResponse(path, options, error) {
+  const resource = parseResource(path);
+  const data = fallbackByResource[resource];
+  const method = options.method || "GET";
 
-function parseBody(body) {
-  if (!body || typeof body !== "string") return {};
-  try {
-    return JSON.parse(body);
-  } catch {
-    return {};
-  }
-}
-
-function fallbackResponse(endpoint, lastError, options) {
-  const fallback = fallbackByEndpoint[endpoint];
-  if (!fallback) {
-    return {
-      success: false,
-      data: null,
-      offline: true,
-      source: "frontend",
-      error: lastError?.message || "Unable to connect to the API"
-    };
-  }
-
-  if (options.method && options.method !== "GET") {
-    const payload = parseBody(options.body);
+  if (method === "DELETE") {
     return {
       success: true,
-      data: { id: Date.now(), ...payload },
+      data: { id: Number(String(path).split("/").pop()) },
       offline: true,
-      source: "frontend-demo",
-      error: `API unavailable: ${lastError?.message || "Unable to connect"}`
+      source: "mock",
+      error: `API unavailable: ${error?.message || "request failed"}`
+    };
+  }
+
+  if (method === "POST" || method === "PUT") {
+    const payload = options.body ? JSON.parse(options.body) : {};
+    return {
+      success: true,
+      data: { id: method === "POST" ? Date.now() : Number(String(path).split("/").pop()), ...payload },
+      offline: true,
+      source: "mock",
+      error: `API unavailable: ${error?.message || "request failed"}`
     };
   }
 
   return {
     success: true,
-    data: typeof fallback === "function" ? fallback() : fallback,
+    data: typeof data === "function" ? data() : data || [],
     offline: true,
-    source: "frontend-demo",
-    error: `API unavailable: ${lastError?.message || "Unable to connect"}`
+    source: "mock",
+    error: `API unavailable: ${error?.message || "request failed"}`
   };
 }
 
 export async function apiRequest(path, options = {}) {
-  const endpoint = normalizeEndpoint(path);
   const method = options.method || "GET";
   const attempts = method === "GET" ? 3 : 1;
+  const endpoint = String(path).startsWith("/api/") ? path : `/api/${String(path).replace(/^\/+/, "")}`;
   let lastError = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(`${BASE_URL}${endpoint}`, {
         ...options,
         method,
         headers: {
@@ -110,30 +79,30 @@ export async function apiRequest(path, options = {}) {
           ...(options.headers || {})
         }
       });
-      const payload = await parseResponse(response);
+      const payload = await parseJson(response);
 
-      if (!response.ok || payload?.success === false) {
+      if (!response.ok || payload.success === false) {
         return {
           success: false,
-          data: payload?.data ?? null,
+          data: payload.data ?? null,
           offline: false,
-          source: payload?.source || "server",
-          error: responseError(payload, response)
+          source: payload.source || "server",
+          error: payload.error || payload.message || `Request failed with status ${response.status}`
         };
       }
 
       return {
-        success: payload?.success ?? true,
-        data: payload?.data ?? payload,
+        success: payload.success ?? true,
+        data: payload.data ?? payload,
         offline: false,
-        source: payload?.source || "server",
-        error: ""
+        source: payload.source || "server",
+        error: payload.error || ""
       };
     } catch (error) {
       lastError = error;
-      if (attempt < attempts - 1) await delay(600 * (attempt + 1));
+      if (attempt < attempts - 1) await sleep(500 * (attempt + 1));
     }
   }
 
-  return fallbackResponse(endpoint, lastError, { ...options, method });
+  return fallbackResponse(endpoint, { ...options, method }, lastError);
 }
